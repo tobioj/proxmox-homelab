@@ -1,0 +1,15 @@
+# Never commit real configuration, keys or backups
+*.env
+.env*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*.vma*
+*.tar.zst
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
