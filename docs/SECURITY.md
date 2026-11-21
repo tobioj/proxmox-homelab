@@ -1,7 +1,22 @@
 # Security
 
 A homelab that serves public traffic and runs other people's CI jobs. The model is layered from the internet
-inward; each layer assumes the one outside it can fail. Thresholds and limits are illustrative.
+inward, and each layer assumes the one outside it can fail. Thresholds and limits are described in words; the
+exact values are not published.
+
+---
+
+## Contents
+
+- [The layers](#the-layers)
+- [1. Router](#1-router)
+- [2. The edge proxy](#2-the-edge-proxy)
+- [3. fail2ban](#3-fail2ban)
+- [4. Applications](#4-applications)
+- [5. The CI sandbox](#5-the-ci-sandbox)
+- [The outbound tunnel](#the-outbound-tunnel)
+- [Secrets handling](#secrets-handling)
+- [Honest weak spots](#honest-weak-spots)
 
 ---
 
@@ -10,20 +25,26 @@ inward; each layer assumes the one outside it can fail. Thresholds and limits ar
 ```mermaid
 flowchart TB
     I(("Internet")) --> L1
+    I --> T
     L1["1 · Router<br/>one forwarded port"] --> L2
     L2["2 · nginx on edge-node<br/>TLS · rate limits · catch-all 444"] --> L3
     L3["3 · fail2ban<br/>five jails · escalating bans"] --> L4
     L4["4 · Applications<br/>2FA · tokens checked per request"] --> L5
-    L5["5 · CI sandbox<br/>firewalled VM · unprivileged containers"]
+    L5["5 · CI sandbox<br/>firewalled VMs · unprivileged containers"]
+    T["Outbound tunnel<br/>named services only"] --> TA["Observability services<br/>their own sign-in and keys"]
     L3 -.->|"phone alerts · daily digest"| P["Operator's phone"]
 ```
+
+Public traffic takes the left-hand path, through every layer. The observability services take the right-hand
+one: a tunnel that the house opens outwards, covered [below](#the-outbound-tunnel).
 
 ---
 
 ## 1. Router
 
 Only `:443` is forwarded, and only to `edge-node`. The hypervisor's management UI, SSH on every guest, the
-control panel, Redis and the observability stack are all LAN-only.
+control panel and Redis are all LAN-only. Development services are narrower still: they bind to their own
+machine's loopback address and are reached over SSH tunnels.
 
 ## 2. The edge proxy
 
@@ -31,7 +52,7 @@ control panel, Redis and the observability stack are all LAN-only.
 | --- | --- |
 | TLS everywhere | Let's Encrypt certificates over DNS-01; no plain-HTTP listener is exposed |
 | Catch-all `444` | Unknown `Host` names get a closed connection, never another site's content |
-| Rate limits per zone | Sign-in, 2FA and token pages: 12 requests a minute. The API: 6 a second. Everything else: 40 a second. Over the limit is `429` |
+| Rate limits per zone | A strict per-minute limit on sign-in, 2FA and token pages; a moderate per-second limit on the API; a generous one everywhere else. Over the limit is `429`. The CI runner is exempt, so job checkouts are never throttled |
 | One upstream per route | The Git web UI, the Pushlane API and the webhook service each have their own location and limits |
 
 ## 3. fail2ban
@@ -40,18 +61,18 @@ Five jails read the proxy's and SSH's logs. Bans grow on repeat (`bantime.increm
 sign-ins, rate-limit abuse and repeat offenders send a phone notification at once; scanner bans only appear in
 the digest, because they are constant background noise.
 
-| Jail | Trigger (illustrative) | Ban |
+| Jail | Trigger | Ban |
 | --- | --- | --- |
-| Failed sign-ins | 6 `401`s on the CI site or its API within 10 minutes | Hours, growing on repeat |
-| Rate-limit abuse | Repeated `limit_req` rejections on the sign-in pages | Hours, growing on repeat |
-| Scanners | Probes for `wp-login.php`, `.env`, `.git/config`, `phpmyadmin` and friends, or bare-IP requests | A day, growing on repeat |
-| Repeat offenders | Banned 3 times in a day by any jail | 7 days, on **all** ports |
+| Failed sign-ins | A handful of wrong usernames or tokens on the CI site or its API within minutes. Git's normal anonymous `401` challenge is ignored | Hours, doubling on repeat |
+| Rate-limit abuse | Repeated `limit_req` rejections on the sign-in pages | Hours, doubling on repeat |
+| Scanners | Probes for `wp-login.php`, WordPress API paths, `.env`, `.git/config`, `phpmyadmin` and friends, or bare-IP requests | A day, growing on repeat |
+| Repeat offenders | Banned several times in a day by any jail | A week, on **all** ports |
 | SSH | Failed SSH logins | Standard |
 
 The LAN is never banned. A **daily digest** summarises the last 24 hours: bans per jail, failed sign-ins and
 rate-limit hits on the CI site, server errors, the addresses currently blocked and how long the certificates
-have left. It is sent as high priority when the day was unusually busy. `ci-admin blocked`,
-`block` and `unblock` manage the lists by hand.
+have left. It is sent as high priority when the day was unusually busy. `ci-admin blocked`, `block` and
+`unblock` manage the lists by hand.
 
 ### Webhooks answer 403, not 401
 
@@ -75,14 +96,30 @@ CI jobs are untrusted code. They run under several independent restrictions:
 
 | Restriction | What it stops |
 | --- | --- |
-| A dedicated VM with an egress firewall | Reaching the control plane, the router, the hypervisor or anything else on the LAN |
+| Dedicated VMs with egress rules (a Proxmox firewall on the host's runner, an in-VM guard on the workstation's) | Reaching the control plane, the router, the hypervisor, the workstation or anything else on the LAN |
 | Unprivileged containers | Container escapes through privileged mode |
 | Docker user-namespace remapping | Root in a container is not root on the VM |
 | No Docker socket, no host bind mounts | Jobs cannot drive Docker or read the VM's files |
 | Per-job CPU, memory and process limits | One job starving the others, fork bombs |
 | A 60-minute job timeout | Runaway jobs holding a slot forever |
-| A localhost-only cache server with per-repository isolation | One project reading another's cached build output |
-| A fixed-size VM | A burst of jobs taking memory from the other guests |
+| Localhost-only cache servers with per-repository isolation | One project reading another's cached build output |
+| A fixed-size runner VM on the host | A burst of jobs taking memory from the other guests |
+| Priority accounts only on the workstation | Code from the wider group of accounts never runs on a personal machine |
+
+---
+
+## The outbound tunnel
+
+The observability stack on `infra-node` is published through a Cloudflare Tunnel rather than through the router.
+
+- **It opens nothing.** The tunnel client connects outwards; there is no port forward and no listener facing
+  the internet on the house's side.
+- **It publishes a list, not a machine.** Each observability service is named in the tunnel's configuration;
+  anything else gets `404`. The control panel, Redis and the hypervisor are not reachable through it.
+- **Each service authenticates for itself.** Dashboards and the error tracker require a sign-in; log ingest sits
+  behind an authenticating proxy; error ingest needs a per-project key; push-alert topics are private.
+
+It is, all the same, a second way in, and it is listed as such [below](#honest-weak-spots).
 
 ---
 
@@ -95,6 +132,7 @@ CI jobs are untrusted code. They run under several independent restrictions:
 | GitHub App private key and webhook secret | The Git server's service state directory | Created by GitHub's manifest flow straight into that directory; never printed |
 | Deploy keys for forwarding to GitHub | Forgejo Actions secrets | Write-only; masked in job logs |
 | DNS provider token | Only during certificate issuance | Written into a hook script, deleted right after the run |
+| Development database passwords | An owner-only `.env` next to the service | Never printed; read over SSH straight into the developer's own git-ignored config |
 
 Nothing sensitive is ever passed on a command line where another process could read it: Git credentials, for
 example, travel as `extraHeader` configuration in the environment.
@@ -108,9 +146,14 @@ Ranked by how much they would matter if the threat model changed.
 1. **The LAN is flat.** Household devices share a network with the control plane and its Redis, which has no
    password and relies on network position. VLAN segmentation is the most valuable hardening step not yet
    taken.
-2. **One box, one disk controller, one NIC, one WAN address.** Every failure is total. Backups make it
+2. **A second way in.** The observability services are reachable through the tunnel, protected by their own
+   authentication alone. An identity-aware access policy at the tunnel would add a second, independent layer.
+3. **One box, one disk controller, one NIC, one WAN address.** Every failure is total. Backups make it
    recoverable, not available.
-3. **The runner can reach the whole internet.** CI needs registries and GitHub, so egress is open beyond the
+4. **The runners can reach the whole internet.** CI needs registries and GitHub, so egress is open beyond the
    LAN block. A compromised job could exfiltrate its own repository's data, as on any hosted CI.
-4. **Rate limits are per address.** A distributed brute-force attempt would be slowed by 2FA, not by bans.
-5. **Third parties.** The DNS provider can redirect traffic; GitHub holds the source of truth.
+5. **Some CI runs on a personal machine.** The workstation lane is contained by a VM and its guard, and only
+   priority accounts use it, but a VM escape there would land on a desktop rather than on a disposable server.
+6. **Rate limits are per address.** A distributed brute-force attempt would be slowed by 2FA, not by bans.
+7. **Third parties.** The DNS provider can redirect traffic, the tunnel provider carries the observability
+   traffic, and GitHub holds the source of truth.

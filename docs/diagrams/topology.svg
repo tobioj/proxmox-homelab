@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 930" width="1200" height="930" font-family="ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <style>
+    .bg    { fill:#ffffff; }
+    .frame { fill:#f8fafc; stroke:#cbd5e1; stroke-width:1.5; }
+    .ext   { fill:#ede9fe; stroke:#7c5cd6; stroke-width:1.5; }
+    .vm    { fill:#ffffff; stroke:#475569; stroke-width:2; }
+    .vmo   { fill:#ffffff; stroke:#475569; stroke-width:2; stroke-dasharray:7 4; }
+    .idle  { fill:#f1f5f9; stroke:#94a3b8; stroke-width:1.5; }
+    .disk  { fill:#fef3c7; stroke:#b4840e; stroke-width:1.5; }
+    .tmr   { fill:#dbeafe; stroke:#2f6fb5; stroke-width:1.5; }
+    .net   { fill:#e2e8f0; stroke:#475569; stroke-width:1.5; }
+    .th    { fill:#0f172a; font-size:18px; font-weight:700; }
+    .tb    { fill:#0f172a; font-size:14px; font-weight:700; }
+    .tn    { fill:#0f172a; font-size:12.5px; font-weight:700; }
+    .ts    { fill:#475569; font-size:11.5px; }
+    .tq    { fill:#2f6f4f; font-size:11.5px; font-style:italic; }
+    .tm    { fill:#334155; font-size:11.5px; font-style:italic; }
+    .tp    { fill:#6d4fc2; font-size:11.5px; font-style:italic; }
+    .tr    { fill:#b23b33; font-size:11.5px; font-weight:700; }
+    .ln    { stroke:#475569; stroke-width:2; fill:none; }
+    .lnr   { stroke:#c2483f; stroke-width:3; fill:none; }
+    .lnp   { stroke:#7c5cd6; stroke-width:2; fill:none; stroke-dasharray:6 4; }
+    .lnd   { stroke:#475569; stroke-width:1.6; fill:none; stroke-dasharray:5 3; }
+    .bound { stroke:#94a3b8; stroke-width:1.5; stroke-dasharray:8 5; }
+  </style>
+  <defs>
+    <marker id="a" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L11,5 z" fill="#475569"/>
+    </marker>
+    <marker id="ar" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" refX="11" refY="6" orient="auto">
+      <path d="M0,0 L0,12 L12,6 z" fill="#c2483f"/>
+    </marker>
+    <marker id="ap" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L11,5 z" fill="#7c5cd6"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="930"/>
+
+  <!-- title -->
+  <text class="th" x="30" y="34">Homelab infrastructure: one Proxmox host</text>
+  <text class="ts" x="30" y="56">Six guests with one job each, an optional CI lane on a workstation, two spinning disks. Names are illustrative; sizes are not published.</text>
+
+  <!-- outside the house -->
+  <rect class="ext" x="30" y="80" width="214" height="70" rx="8"/>
+  <text class="tn" x="44" y="104">Cloudflare</text>
+  <text class="ts" x="44" y="122">outbound-only tunnel</text>
+  <text class="ts" x="44" y="138">for the observability services</text>
+
+  <rect class="ext" x="262" y="80" width="214" height="70" rx="8"/>
+  <text class="tn" x="276" y="104">DuckDNS</text>
+  <text class="ts" x="276" y="122">dynamic DNS</text>
+  <text class="ts" x="276" y="138">+ ACME TXT records</text>
+
+  <rect class="ext" x="494" y="80" width="214" height="70" rx="8"/>
+  <text class="tn" x="508" y="104">Visitors and developers</text>
+  <text class="ts" x="508" y="122">apps · the CI site · its API</text>
+  <text class="ts" x="508" y="138">GitHub's webhooks</text>
+
+  <rect class="ext" x="726" y="80" width="214" height="70" rx="8"/>
+  <text class="tn" x="740" y="104">Let's Encrypt</text>
+  <text class="ts" x="740" y="122">certificates over DNS-01</text>
+  <text class="ts" x="740" y="138">(inbound :80 is blocked)</text>
+
+  <rect class="ext" x="958" y="80" width="214" height="70" rx="8"/>
+  <text class="tn" x="972" y="104">GitHub</text>
+  <text class="ts" x="972" y="122">source of truth for code</text>
+  <text class="ts" x="972" y="138">receives only passing commits</text>
+
+  <line class="bound" x1="20" y1="172" x2="1180" y2="172"/>
+  <text class="tm" x="1150" y="166" text-anchor="end">home network boundary</text>
+
+  <rect class="net" x="450" y="186" width="300" height="54" rx="8"/>
+  <text class="tn" x="600" y="208" text-anchor="middle">Home router · NAT</text>
+  <text class="ts" x="600" y="226" text-anchor="middle">one dynamic WAN IP · only :443 forwarded</text>
+
+  <!-- hypervisor -->
+  <rect class="frame" x="20" y="262" width="1160" height="540" rx="12"/>
+  <text class="tb" x="36" y="290">hv-01 · Proxmox VE 9</text>
+  <text class="ts" x="36" y="790">one host · no SSD · memory that can't be upgraded · a thin pool per guest · every recurring job a timer</text>
+
+  <!-- row 1 -->
+  <rect class="vm" x="40" y="312" width="340" height="140" rx="10"/>
+  <text class="tb" x="56" y="334">infra-node · VM · CONTROL PLANE</text>
+  <text class="ts" x="56" y="356">deploy control panel · shared Redis</text>
+  <text class="ts" x="56" y="374">observability, published by the tunnel</text>
+  <text class="ts" x="56" y="392">development services on loopback</text>
+  <text class="tq" x="56" y="414">memory: ballooned, gives cache back</text>
+  <text class="tq" x="56" y="432">backed up nightly + weekly</text>
+
+  <rect class="vm" x="430" y="312" width="340" height="140" rx="10"/>
+  <text class="tb" x="446" y="334">edge-node · VM · THE ONE DOOR IN</text>
+  <text class="ts" x="446" y="356">nginx · TLS · catch-all 444 · rate limits</text>
+  <text class="ts" x="446" y="374">fail2ban · phone alerts · daily digest</text>
+  <text class="ts" x="446" y="392">data plane for deployed apps</text>
+  <text class="tq" x="446" y="414">memory: ballooned, gives cache back</text>
+  <text class="tq" x="446" y="432">backed up nightly + weekly</text>
+
+  <rect class="vm" x="820" y="312" width="340" height="140" rx="10"/>
+  <text class="tb" x="836" y="334">git-node · LXC · PUSHLANE SERVER</text>
+  <text class="ts" x="836" y="356">Forgejo v15 LTS · 2FA for everyone</text>
+  <text class="ts" x="836" y="374">Pushlane API and results service</text>
+  <text class="ts" x="836" y="392">GitHub sync through a GitHub App</text>
+  <text class="tq" x="836" y="414">memory: hard cgroup cap</text>
+  <text class="tq" x="836" y="432">backed up nightly + weekly</text>
+
+  <!-- row 2 -->
+  <rect class="idle" x="40" y="492" width="340" height="120" rx="10"/>
+  <text class="tb" x="56" y="514">game-node · VM</text>
+  <text class="ts" x="56" y="536">a game server, started on demand</text>
+  <text class="ts" x="56" y="554">stopped by default</text>
+  <text class="tq" x="56" y="576">memory: large; never beside CI</text>
+  <text class="tq" x="56" y="594">not backed up: replaceable</text>
+
+  <rect class="idle" x="430" y="492" width="340" height="120" rx="10"/>
+  <text class="tb" x="446" y="514">sandbox-ct · LXC</text>
+  <text class="ts" x="446" y="536">scratch space for experiments</text>
+  <text class="ts" x="446" y="554">stopped</text>
+  <text class="tq" x="446" y="576">memory: small</text>
+  <text class="tq" x="446" y="594">not backed up</text>
+
+  <rect class="vm" x="820" y="492" width="340" height="120" rx="10"/>
+  <text class="tb" x="836" y="514">ci-runner · VM · CI JOBS</text>
+  <text class="ts" x="836" y="536">shared lane · priority lane · Docker jobs</text>
+  <text class="ts" x="836" y="554">firewall: internet, git-node, edge only</text>
+  <text class="tq" x="836" y="576">memory: fixed, plus zram inside</text>
+  <text class="tq" x="836" y="594">not backed up: rebuilt from scripts</text>
+
+  <!-- row 3: storage and timers -->
+  <rect class="disk" x="40" y="636" width="340" height="128" rx="10"/>
+  <text class="tb" x="56" y="660">disk-a · spinning disk</text>
+  <text class="ts" x="56" y="684">pools: edge · infra · git · game</text>
+  <text class="ts" x="56" y="702">a backup partition of its own:</text>
+  <text class="ts" x="56" y="720">nightly snapshot backups</text>
+
+  <rect class="disk" x="430" y="636" width="340" height="128" rx="10"/>
+  <text class="tb" x="446" y="660">disk-b · spinning disk</text>
+  <text class="ts" x="446" y="684">host OS and swap · the ci-runner pool</text>
+  <text class="ts" x="446" y="702">the weekly second backup copy</text>
+  <text class="ts" x="446" y="720">either disk can die; a copy survives</text>
+
+  <rect class="tmr" x="820" y="636" width="340" height="128" rx="10"/>
+  <text class="tb" x="836" y="660">host timers</text>
+  <text class="ts" x="836" y="684">dynamic DNS · every few minutes</text>
+  <text class="ts" x="836" y="702">CI lane sync · every minute</text>
+  <text class="ts" x="836" y="720">backups · nightly and weekly</text>
+
+  <!-- the workstation lane, on the home network but off the host -->
+  <rect class="vmo" x="820" y="822" width="340" height="92" rx="10"/>
+  <text class="tb" x="836" y="844">ws-runner · OPTIONAL CI LANE</text>
+  <text class="ts" x="836" y="866">a VM on a desktop workstation</text>
+  <text class="ts" x="836" y="884">priority accounts only · guard inside the VM</text>
+  <text class="ts" x="836" y="902">paused, resumed or removed from the desktop</text>
+
+  <!-- traffic in -->
+  <path class="ln" d="M600,150 V184" marker-end="url(#a)"/>
+  <text class="ts" x="612" y="165">HTTPS · git push · webhooks</text>
+  <path class="lnr" d="M600,240 V310" marker-end="url(#ar)"/>
+  <text class="tr" x="610" y="290">:443 only</text>
+
+  <!-- between guests -->
+  <path class="lnr" d="M380,362 H428" marker-end="url(#ar)"/>
+  <text class="tr" x="405" y="352" text-anchor="middle">SSH</text>
+  <text class="tr" x="405" y="380" text-anchor="middle">sudo</text>
+  <path class="ln" d="M770,352 H818" marker-end="url(#a)"/>
+  <text class="ts" x="795" y="342" text-anchor="middle">CI site</text>
+  <text class="ts" x="795" y="370" text-anchor="middle">API</text>
+  <path class="ln" d="M900,492 V454" marker-end="url(#a)"/>
+  <text class="ts" x="910" y="478">fetch jobs</text>
+  <path class="lnd" d="M820,868 H795 V420 H818" marker-end="url(#a)"/>
+  <text class="ts" x="785" y="864" text-anchor="end">fetches jobs from git-node, when it is on</text>
+
+  <!-- outbound -->
+  <path class="lnp" d="M1160,552 H1170 V152" marker-end="url(#ap)"/>
+  <text class="tp" x="1162" y="478" text-anchor="end">forwards passing commits</text>
+  <path class="lnp" d="M330,312 L150,152" marker-end="url(#ap)"/>
+  <text class="tp" x="150" y="244">outbound tunnel</text>
+  <path class="lnd" d="M360,312 L380,152" marker-end="url(#a)"/>
+  <text class="tm" x="388" y="256">IP updates</text>
+  <path class="lnd" d="M740,312 L800,152" marker-end="url(#a)"/>
+  <text class="tm" x="790" y="262">DNS-01</text>
+</svg>

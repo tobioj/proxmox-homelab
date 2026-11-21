@@ -1,7 +1,17 @@
 # Backups
 
 Two copies, on two disks, on two schedules. Anything that cannot be rebuilt from scripts is backed up;
-anything that can is deliberately left out. Times and retention are illustrative.
+anything that can is deliberately left out.
+
+---
+
+## Contents
+
+- [What is backed up](#what-is-backed-up)
+- [Schedule](#schedule)
+- [Protected backups](#protected-backups)
+- [Restoring](#restoring)
+- [Integrity after an unclean shutdown](#integrity-after-an-unclean-shutdown)
 
 ---
 
@@ -10,13 +20,14 @@ anything that can is deliberately left out. Times and retention are illustrative
 | Guest | Backed up | Why |
 | --- | --- | --- |
 | `edge-node` | Yes | TLS certificates, proxy and ban configuration, deployed apps |
-| `infra-node` | Yes | The control panel's database (state, encrypted secrets, audit log) and the observability stack |
+| `infra-node` | Yes | The control panel's database (state, encrypted secrets, audit log), the observability stack and the development services |
 | `git-node` | Yes | Every repository, account, CI history and the GitHub App's state |
 | `ci-runner` | **No** | Disposable: provisioning scripts rebuild it from nothing in minutes |
+| `ws-runner` | **No** | Off the host, and rebuilt from the same scripts |
 | `game-node` | **No** | Large and replaceable |
 | `sandbox-ct` | **No** | Scratch space by definition |
 
-Leaving the runner out is a design choice, not an omission: everything on it is either downloaded (images,
+Leaving the runners out is a design choice, not an omission: everything on them is either downloaded (images,
 caches) or regenerated (lane configs from the account list, runner identities reused from the host).
 
 ---
@@ -24,23 +35,20 @@ caches) or regenerated (lane configs from the account list, runner identities re
 ## Schedule
 
 ```mermaid
-gantt
-    dateFormat HH:mm
-    axisFormat %H:%M
-    title A typical week
-    section Nightly (disk-a)
-    Snapshot backup of edge infra and git :03:15, 40m
-    section Sunday only (disk-b)
-    Second copy on the other disk      :05:00, 40m
+flowchart LR
+    G["edge-node<br/>infra-node · git-node<br/>snapshot mode"]
+    G -->|"every night, in the quiet hours"| N[("disk-a<br/>backup partition")]
+    G -->|"once a week"| W[("disk-b<br/>second copy")]
 ```
 
 | Job | When | Where | Keeps |
 | --- | --- | --- | --- |
-| Nightly | 03:15 every day | Backup directory on `disk-a` | 7 daily, 4 weekly, 2 monthly |
-| Weekly second copy | Sunday 05:00 | `disk-b` | The last 2 |
+| Nightly | Every night, before the day's CI starts | A backup partition of its own on `disk-a` | A few daily, a couple of weekly and one monthly archive |
+| Weekly second copy | Once a week, early on a Sunday | `disk-b` | The latest |
 
 Both jobs use **snapshot mode** (guests keep running), compress with `zstd`, and send a notification only on
-failure. They run in the quietest hours, after the day's CI has finished and before it starts.
+failure. They run in the quietest hours, after the day's CI has finished and before it starts, because backups
+and CI compete for the same spinning disks.
 
 ### Why two disks
 
@@ -51,8 +59,8 @@ guests *and* their backups at once. Splitting them means:
 - `disk-b` dies: the host OS and the runner are gone (both rebuildable), and the nightly backups on `disk-a`
   survive.
 
-The cost is that the second copy is up to a week old. For this workload that is the right trade: the Git
-server's real source of truth for code is GitHub anyway.
+The cost is that the second copy can be up to a week old. For this workload that is the right trade: the real
+source of truth for code is GitHub anyway.
 
 ---
 
@@ -80,8 +88,8 @@ qmrestore /path/to/backups/dump/vzdump-qemu-<id>-<date>.vma.zst <vm-id> --storag
 ```
 
 After a restore of `git-node`, the lane sync timer reconciles the CI lanes with the restored account list
-within two minutes, registering any runner identity the older database no longer knows. After a restore of `edge-node`, certificates come back with it; if one has expired meanwhile, the
-renewal timer reissues it.
+within a minute or two, registering any runner identity the older database no longer knows. After a restore of
+`edge-node`, certificates come back with it; if one has expired meanwhile, the renewal timer reissues it.
 
 ### The runner, instead of a restore
 
@@ -90,7 +98,8 @@ ci-admin rebuild-runner      # destroy and rebuild the CI VM from the provisioni
 ```
 
 It reinstalls Docker, the runner, the cache server and both lanes, reuses the runner identities stored on the
-host, and pre-pulls the common job images.
+host, and pre-pulls the common job images. The workstation lane is rebuilt the same way, from its own build
+command.
 
 ---
 

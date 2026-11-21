@@ -1,7 +1,7 @@
 # Edge cases
 
-Real failures, and what changed because of them. Each is written as **symptom, cause, fix, lesson**. Counts and
-sizes are illustrative.
+Real failures, and what changed because of them. Each is written as **symptom, cause, fix, lesson**. Exact
+counts and sizes are left out; the proportions are real.
 
 | # | Area | One line |
 | --- | --- | --- |
@@ -19,6 +19,11 @@ sizes are illustrative.
 | [12](#12-a-job-name-with-an-em-dash) | API | One character turned a log download into a 502 |
 | [13](#13-a-run-marked-failed-while-jobs-still-run) | API | Re-run and cancel disagreed with reality |
 | [14](#14-two-guests-that-cannot-share-the-ram) | Capacity | The game server and CI do not fit together |
+| [15](#15-a-queue-cancelled-while-it-waited) | CI | A night's queue was cancelled for waiting too long |
+| [16](#16-a-bridged-vm-on-the-wrong-network) | Workstation | The workstation's CI VM came up with no internet |
+| [17](#17-a-guard-that-cut-its-own-ssh-session) | Workstation | Loading the network guard dropped the session loading it |
+| [18](#18-a-machine-that-drops-pings) | Workstation | A healthy VM never answered a ping |
+| [19](#19-a-run-called-cancelled-when-only-its-notification-was) | API | Passing tests reported as a cancelled run |
 
 ---
 
@@ -27,13 +32,15 @@ sizes are illustrative.
 **Symptom.** Jobs failed with `context deadline exceeded` and database services that "never became healthy".
 The failures moved between jobs and had nothing to do with the code under test.
 
-**Cause.** Ten jobs ran at once, several with Postgres service containers. On a spinning disk that is ten-plus
-concurrent random writers. I/O pressure inside the runner reached about 70%; Docker answered its API so slowly
+**Cause.** A burst of jobs ran at once, several with Postgres service containers. On a spinning disk that is
+many concurrent random writers. I/O pressure inside the runner passed half; Docker answered its API so slowly
 that health checks and the runner's own calls timed out.
 
-**Fix.** Concurrency came down in measured steps, from 5 + 5 to 3 + 3 to 3 + 2. Test databases now keep their
-data on `tmpfs`, so they start in seconds and never touch the disk; the agent guide shows the exact service
-definition. Restarts that apply new limits never kill running jobs (see [5](#5-reconfiguring-a-lane-without-killing-jobs)).
+**Fix.** Concurrency came down in measured steps, and a measurement tool now records every job's real memory and
+CPU use so slot counts are set from data. Test databases keep their data on `tmpfs`, so they start in seconds and
+never touch the disk; the agent guide shows the exact service definition. Extra capacity now comes from a
+workstation lane with a solid-state disk rather than from more slots on the host. Restarts that apply new
+limits never kill running jobs (see [5](#5-reconfiguring-a-lane-without-killing-jobs)).
 
 **Lesson.** Find the resource that actually saturates. Here it was never CPU or RAM.
 
@@ -69,7 +76,7 @@ and there is no way to exclude some.
 
 **Fix.** The shared lane no longer registers once for everyone. It holds one owner-scoped identity per account
 and organisation not on the priority plan. A timer keeps that list current: new accounts and organisations get
-an identity within two minutes, deleted ones are dropped, and a lane is restarted only when its list changed.
+an identity within a minute, deleted ones are dropped, and a lane is restarted only when its list changed.
 A test confirms a priority job waits for a priority slot while the shared lane sits idle.
 
 **Lesson.** When the platform cannot express a rule, change what you register rather than what you ask it.
@@ -111,7 +118,7 @@ new config. The status check reports `applies its new config when its running jo
 
 **Symptom.** The host, every guest and every site went unreachable at once. The console still worked.
 
-**Cause.** The onboard Intel NIC (e1000e driver) logged `Detected Hardware Unit Hang` about 400 times in ten
+**Cause.** The onboard Intel NIC (e1000e driver) logged `Detected Hardware Unit Hang` hundreds of times in a few
 minutes while two browser-test jobs moved a lot of data. This driver is known to stall its transmit queue under
 heavy traffic with segmentation offload enabled.
 
@@ -215,3 +222,84 @@ any job is still active, and both say why when they refuse.
 the game server is running. The rule is documented: stop the runner first, or don't start the game.
 
 **Lesson.** On a host where RAM cannot be upgraded, write the incompatible pairs down where you will see them.
+
+---
+
+## 15. A queue cancelled while it waited
+
+**Symptom.** In the morning, a night's worth of CI runs had been cancelled without ever starting. Nothing was
+wrong with any of them.
+
+**Cause.** With only one slot free for that group of accounts overnight, the runs queued behind each other. The
+Git server cancels a job that has waited longer than a configured limit, and that limit was shorter than the
+queue.
+
+**Fix.** The limit was raised well beyond any realistic queue. Runs that genuinely *can't* finish (nothing
+running, a job waiting for a runner label no lane serves) are now cancelled by Pushlane itself after a while,
+with that reason attached, instead of waiting for a blanket timeout.
+
+**Lesson.** A timeout meant for stuck work also fires on patient work. Tell the two apart by what is actually
+blocking, not by how long it has been.
+
+---
+
+## 16. A bridged VM on the wrong network
+
+**Symptom.** The workstation's CI VM booted, but had no internet, and the host couldn't find it on the LAN.
+
+**Cause.** The desktop hypervisor's bridged network was set to "automatic", and with a VPN client's adapter and
+a host-only adapter installed, "automatic" picked a virtual adapter. The VM was on a network that existed only
+inside the workstation.
+
+**Fix.** The bridge is pinned to the workstation's physical network card, the setup notes say so, and the
+connect step installs anything a first boot without internet missed before it does anything else.
+
+**Lesson.** "Automatic" chooses among everything that looks like a network card, including the ones software
+installed for itself.
+
+---
+
+## 17. A guard that cut its own SSH session
+
+**Symptom.** The first time the workstation VM's network guard was loaded, the SSH session that loaded it froze
+and dropped.
+
+**Cause.** The guard drops traffic to the LAN, and the host's SSH session *is* LAN traffic. Nothing in the first
+version explicitly let that session's replies out.
+
+**Fix.** The guard always lets SSH replies to the host out, ahead of every other rule, so loading or reloading it
+can never strand the session doing the work.
+
+**Lesson.** A firewall rule set has to allow its own administration first. Test that by loading it over the
+connection you'll be using.
+
+---
+
+## 18. A machine that drops pings
+
+**Symptom.** Pings from the host to the workstation's VM got no reply, although the VM was up and reachable over
+SSH.
+
+**Cause.** The workstation drops incoming pings on the way to its VMs, a perfectly reasonable default for a
+desktop.
+
+**Fix.** The host checks the VM by connecting to its SSH port, which is also the one thing it actually needs to
+work.
+
+**Lesson.** Check the capability you depend on, not a proxy for it.
+
+---
+
+## 19. A run called cancelled when only its notification was
+
+**Symptom.** A run whose tests had passed showed as cancelled.
+
+**Cause.** Every run ends with a managed notification job. When only that job was cancelled, the Git server
+judged the whole run "cancelled", whatever the project's own jobs had done. It also keeps no record of *why*
+anything was cancelled.
+
+**Fix.** Pushlane works out a run's result from the project's own jobs only, and the GitHub status is posted from
+that result as soon as the tests finish. Every cancelled job gets a reason from evidence the server already has:
+a newer push, the person who pressed cancel, a runner that went silent, a label no lane serves.
+
+**Lesson.** When a platform's summary mixes your work with its own bookkeeping, compute the summary yourself.
